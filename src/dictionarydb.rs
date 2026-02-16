@@ -28,7 +28,6 @@ impl DictionaryDB {
     /// Returns an error if the executable path is unavailable or the database cannot be opened.
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
         let path = std::env::current_exe()?.parent().unwrap().join("jpn.db");
-        println!("Loading dictionary database from: {:?}", path);
         let conn = Connection::open(path)?;
         Ok(DictionaryDB { conn })
     }
