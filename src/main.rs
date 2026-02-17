@@ -3,7 +3,6 @@
 /// It uses SQLite for data storage and includes a build script to ensure the dictionary database is available at runtime.
 /// The app is meant to be a CLI companion to the jpn-learning-diary desktop application.
 mod diarydb;
-mod diarydb_entry;
 mod dictionarydb;
 
 use clap::Parser;

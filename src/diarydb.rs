@@ -1,6 +1,22 @@
-use crate::diarydb_entry::DiaryDBEntry;
-use rusqlite::{params, Connection, OptionalExtension, Result};
+use rusqlite::{Connection, OptionalExtension, Result, params};
 use std::path::Path;
+
+/// Data model for a single diary entry row.
+#[derive(Debug, Clone)]
+pub struct DiaryDBEntry {
+    /// Unique identifier for the entry.
+    pub id: i32,
+    /// Japanese text of the diary entry.
+    pub japanese: String,
+    /// Romaji transcription of the Japanese text.
+    pub romaji: String,
+    /// English meaning of the diary entry.
+    pub meaning: String,
+    /// Optional notes about the diary entry.
+    pub notes: Option<String>,
+    /// Timestamp when the diary entry was added (milliseconds since epoch).
+    pub date_added: i64,
+}
 
 /// SQLite-backed database for diary entries.
 pub struct DiaryDB {
@@ -129,8 +145,12 @@ impl DiaryDB {
     /// Returns an error if the query fails.
     pub fn get_all_entries(&self, limit: Option<usize>) -> Result<Vec<DiaryDBEntry>> {
         let query = match limit {
-            Some(l) => format!("SELECT id, japanese, romaji, meaning, notes, date_added FROM diary_entries LIMIT {}", l),
-            None => "SELECT id, japanese, romaji, meaning, notes, date_added FROM diary_entries".to_string(),
+            Some(l) => format!(
+                "SELECT id, japanese, romaji, meaning, notes, date_added FROM diary_entries LIMIT {}",
+                l
+            ),
+            None => "SELECT id, japanese, romaji, meaning, notes, date_added FROM diary_entries"
+                .to_string(),
         };
         let mut stmt = self.conn.prepare(&query)?;
         let entry_iter = stmt.query_map([], |row| {
@@ -208,8 +228,10 @@ impl DiaryDB {
         let like_query = format!("%{}%", query);
         let mut stmt = self.conn.prepare(
             "SELECT id, japanese, romaji, meaning, notes, date_added FROM diary_entries 
-             WHERE japanese LIKE ?1 OR romaji LIKE ?1 OR meaning LIKE ?1
-             ORDER BY date_added DESC",
+                  WHERE LOWER(REPLACE(REPLACE(REPLACE(REPLACE(japanese, 'ü', 'ue'), 'ö', 'oe'), 'ä', 'ae'), 'ß', 'ss')) LIKE ?1
+                  OR LOWER(REPLACE(REPLACE(REPLACE(REPLACE(romaji, 'ü', 'ue'), 'ö', 'oe'), 'ä', 'ae'), 'ß', 'ss')) LIKE ?1
+                  OR LOWER(REPLACE(REPLACE(REPLACE(REPLACE(meaning, 'ü', 'ue'), 'ö', 'oe'), 'ä', 'ae'), 'ß', 'ss')) LIKE ?1
+                  ORDER BY date_added DESC",
         )?;
         let entry_iter = stmt.query_map(params![like_query], |row| {
             Ok(DiaryDBEntry {
