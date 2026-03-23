@@ -1,5 +1,36 @@
-use rusqlite::{Connection, OptionalExtension, Result, params};
+use rusqlite::{Connection, OptionalExtension, Result, params, functions::{FunctionFlags, Context}};
 use std::path::Path;
+use regex::Regex;
+use std::sync::OnceLock;
+
+fn strip_markdown_furigana(text: &str) -> String {
+    // Compile regex only once
+    static RE_MARKDOWN: OnceLock<Regex> = OnceLock::new();
+    static RE_JP: OnceLock<Regex> = OnceLock::new();
+    static RE_PUNCT: OnceLock<Regex> = OnceLock::new();
+    
+    // [Kanji](Reading) -> Kanji
+    let re_md = RE_MARKDOWN.get_or_init(|| Regex::new(r"\[([^]]+)\]\([^)]+\)").unwrap());
+    // [Kanji]（Reading） -> Kanji (Japanese parens)
+    let re_jp = RE_JP.get_or_init(|| Regex::new(r"\[([^]]+)\]（[^）]+）").unwrap());
+    // Strip simple punctuation brackets: 「 」 （ ）
+    let re_punct = RE_PUNCT.get_or_init(|| Regex::new(r"[「」（）]").unwrap());
+
+    // 1. Strip complex furigana first
+    let temp1 = re_md.replace_all(text, "$1");
+    let temp2 = re_jp.replace_all(&temp1, "$1");
+    
+    // 2. Then remove just the target punctuation characters
+    let result = re_punct.replace_all(&temp2, "");
+    result.to_string()
+}
+
+fn normalize_umlauts(text: &str) -> String {
+    text.replace('ü', "ue")
+        .replace('ö', "oe")
+        .replace('ä', "ae")
+        .replace('ß', "ss")
+}
 
 /// Data model for a single diary entry row.
 #[derive(Debug, Clone)]
@@ -24,33 +55,51 @@ pub struct DiaryDB {
 }
 
 impl DiaryDB {
-    /// Open or create a diary database at the given path and ensure the schema exists.
-    ///
-    /// # Arguments
-    ///
-    /// - `path`: Filesystem path to the SQLite database.
-    ///
-    /// # Returns
-    ///
-    /// A ready-to-use `DiaryDB` instance.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database cannot be opened or the schema creation fails.
-    pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
+    fn open_and_setup<P: AsRef<Path>>(path: P) -> Result<Connection> {
         let conn = Connection::open(path)?;
 
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS diary_entries (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                japanese TEXT NOT NULL,
-                romaji TEXT NOT NULL,
-                meaning TEXT NOT NULL,
-                notes TEXT,
-                date_added INTEGER NOT NULL
-            )",
-            [],
+        conn.create_scalar_function(
+            "STRIP_FURIGANA",
+            1,
+            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+            move |ctx: &Context| {
+                let text = ctx.get::<String>(0)?;
+                Ok(strip_markdown_furigana(&text))
+            },
         )?;
+
+        conn.create_scalar_function(
+            "NORMALIZE_UMLAUTS",
+            1,
+            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+            move |ctx: &Context| {
+                let text = ctx.get::<String>(0)?;
+                Ok(normalize_umlauts(&text))
+            },
+        )?;
+
+        Ok(conn)
+    }
+
+    /// Open an existing diary database.
+    /// Fails if the table 'diary_entries' does not exist.
+    pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let conn = Self::open_and_setup(path)?;
+
+        // Ensure the table exists, but do not create it automatically.
+        // This fails if the table is missing, preventing operations on invalid DBs.
+        let table_exists: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='diary_entries')",
+            [],
+            |row| row.get(0),
+        )?;
+
+        if !table_exists {
+            return Err(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_ERROR),
+                Some("Database table 'diary_entries' does not exist.".to_string()),
+            ));
+        }
 
         Ok(DiaryDB { conn })
     }
@@ -228,9 +277,10 @@ impl DiaryDB {
         let like_query = format!("%{}%", query);
         let mut stmt = self.conn.prepare(
             "SELECT id, japanese, romaji, meaning, notes, date_added FROM diary_entries 
-                  WHERE LOWER(REPLACE(REPLACE(REPLACE(REPLACE(japanese, 'ü', 'ue'), 'ö', 'oe'), 'ä', 'ae'), 'ß', 'ss')) LIKE ?1
-                  OR LOWER(REPLACE(REPLACE(REPLACE(REPLACE(romaji, 'ü', 'ue'), 'ö', 'oe'), 'ä', 'ae'), 'ß', 'ss')) LIKE ?1
-                  OR LOWER(REPLACE(REPLACE(REPLACE(REPLACE(meaning, 'ü', 'ue'), 'ö', 'oe'), 'ä', 'ae'), 'ß', 'ss')) LIKE ?1
+                  WHERE LOWER(NORMALIZE_UMLAUTS(STRIP_FURIGANA(japanese))) LIKE ?1
+                  OR LOWER(NORMALIZE_UMLAUTS(japanese)) LIKE ?1
+                  OR LOWER(NORMALIZE_UMLAUTS(romaji)) LIKE ?1
+                  OR LOWER(NORMALIZE_UMLAUTS(meaning)) LIKE ?1
                   ORDER BY date_added DESC",
         )?;
         let entry_iter = stmt.query_map(params![like_query], |row| {

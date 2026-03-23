@@ -21,6 +21,13 @@ pub struct Args {
     )]
     pub db_path: String, // Path to the SQLite database file
 
+    #[arg(
+        short,
+        long,
+        help = "Whether to display romaji text in search results"
+    )]
+    pub romaji: bool, // Whether to display romaji in search results
+
     #[command(subcommand)]
     pub command: Commands, // The command to execute (add, search, delete, update, list)
 }
@@ -65,7 +72,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Parse command-line arguments
     let args = Args::parse();
 
-    // Initialize the database connection
     let db = diarydb::DiaryDB::new(&args.db_path)?;
     let dict = dictionarydb::DictionaryDB::new()?;
 
@@ -74,7 +80,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             handle_add(&db)?;
         }
         Commands::Search { query } => {
-            handle_search(&db, query)?;
+            handle_search(&db, query, args.romaji)?;
         }
         Commands::Delete { id } => {
             handle_delete(&db, id)?;
@@ -83,7 +89,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             handle_update(&db, id)?;
         }
         Commands::List { limit } => {
-            handle_list(&db, limit)?;
+            handle_list(&db, limit, args.romaji)?;
         }
         Commands::Dict { query } => {
             handle_dict(&dict, query)?;
@@ -125,11 +131,12 @@ fn handle_add(db: &diarydb::DiaryDB) -> Result<(), Box<dyn std::error::Error>> {
 ///
 /// - `db`: Database handle used for queries.
 /// - `query`: Search term to match against entries.
+/// - `romaji`: Whether to display romaji in the search results.
 ///
 /// # Returns
 ///
 /// Returns `Ok(())` after printing matching entries, or an error otherwise.
-fn handle_search(db: &diarydb::DiaryDB, query: String) -> Result<(), Box<dyn std::error::Error>> {
+fn handle_search(db: &diarydb::DiaryDB, query: String, romaji: bool) -> Result<(), Box<dyn std::error::Error>> {
     let entries = db.search_entries(&query)?;
     if entries.is_empty() {
         println!("No entries found matching query: '{}'", query);
@@ -138,7 +145,9 @@ fn handle_search(db: &diarydb::DiaryDB, query: String) -> Result<(), Box<dyn std
     for entry in entries {
         let japanese = replace_brackets(&entry.japanese);
         println!("{}", japanese);
-        println!("{}", entry.romaji);
+        if romaji {
+            println!("{}", entry.romaji);
+        }
         println!("{}", entry.meaning);
         if let Some(notes) = &entry.notes {
             println!("{}", notes);
@@ -198,6 +207,7 @@ fn handle_update(db: &diarydb::DiaryDB, id: i32) -> Result<(), Box<dyn std::erro
 ///
 /// - `db`: Database handle used for queries.
 /// - `limit`: Optional limit for the number of entries.
+/// - `romaji`: Whether to display romaji in the list results.
 ///
 /// # Returns
 ///
@@ -205,6 +215,7 @@ fn handle_update(db: &diarydb::DiaryDB, id: i32) -> Result<(), Box<dyn std::erro
 fn handle_list(
     db: &diarydb::DiaryDB,
     limit: Option<usize>,
+    romaji: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let entries = db.get_all_entries(limit)?;
     let length = entries.len();
@@ -218,10 +229,10 @@ fn handle_list(
         let japanese = replace_brackets(&entry.japanese);
 
         println!(
-            "[{:width$}]: {} ({}), {}, {}",
+            "[{:width$}]: {} {}, {}, {}",
             entry.id,
             japanese,
-            entry.romaji,
+            if romaji { format!("({})", entry.romaji) } else { "".to_string() },
             entry.meaning,
             notes,
             width = digits

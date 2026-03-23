@@ -6,4 +6,5 @@ build = "build.rs"
 
 [dependencies]
 clap = { version = "4.5.58", features = ["derive"] }
-rusqlite = { version = "0.38.0", features = ["bundled"] }
+regex = "1.12.3"
+rusqlite = { version = "0.38.0", features = ["bundled", "functions"] }
