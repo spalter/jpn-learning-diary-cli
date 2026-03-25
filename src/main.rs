@@ -21,11 +21,7 @@ pub struct Args {
     )]
     pub db_path: String, // Path to the SQLite database file
 
-    #[arg(
-        short,
-        long,
-        help = "Whether to display romaji text in search results"
-    )]
+    #[arg(short, long, help = "Whether to display romaji text in search results")]
     pub romaji: bool, // Whether to display romaji in search results
 
     #[command(subcommand)]
@@ -136,7 +132,11 @@ fn handle_add(db: &diarydb::DiaryDB) -> Result<(), Box<dyn std::error::Error>> {
 /// # Returns
 ///
 /// Returns `Ok(())` after printing matching entries, or an error otherwise.
-fn handle_search(db: &diarydb::DiaryDB, query: String, romaji: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn handle_search(
+    db: &diarydb::DiaryDB,
+    query: String,
+    romaji: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     let entries = db.search_entries(&query)?;
     if entries.is_empty() {
         println!("No entries found matching query: '{}'", query);
@@ -232,7 +232,11 @@ fn handle_list(
             "[{:width$}]: {} {}, {}, {}",
             entry.id,
             japanese,
-            if romaji { format!("({})", entry.romaji) } else { "".to_string() },
+            if romaji {
+                format!("({})", entry.romaji)
+            } else {
+                "".to_string()
+            },
             entry.meaning,
             notes,
             width = digits
@@ -326,23 +330,31 @@ fn get_interactive_input_optional(
 }
 
 /// Handle the dictionary search command.
-/// 
+///
 /// # Arguments
-/// 
+///
 /// - `dict`: The dictionary database instance to perform the search on.
 /// - `query`: The search term to match against kanji, readings, or meanings.
-/// 
+///
 /// # Returns
-/// 
+///
 /// Returns `Ok(())` after printing matching entries, or an error otherwise.
-fn handle_dict(dict: &dictionarydb::DictionaryDB, query: String) -> Result<(), Box<dyn std::error::Error>> {
+fn handle_dict(
+    dict: &dictionarydb::DictionaryDB,
+    query: String,
+) -> Result<(), Box<dyn std::error::Error>> {
     let entries = dict.search(&query)?;
     if entries.is_empty() {
         println!("No dictionary entries found matching query: '{}'", query);
         return Ok(());
     }
     for entry in entries {
-        println!("{} ({}) - {})", entry.kanji.join(", "), entry.readings.join(", "), entry.glosses.join("; "));
+        println!(
+            "{} ({}) - {}",
+            entry.kanji.join(", "),
+            entry.readings.join(", "),
+            entry.glosses.join("; ")
+        );
     }
     Ok(())
 }
@@ -354,7 +366,7 @@ fn handle_dict(dict: &dictionarydb::DictionaryDB, query: String) -> Result<(), B
 /// - `db`: The database instance to perform the vacuum operation on.
 ///
 /// # Returns
-/// 
+///
 /// Returns `Ok(())` after vacuuming the database, or an error otherwise.
 fn handle_vacuum(db: diarydb::DiaryDB) -> Result<(), Box<dyn std::error::Error>> {
     db.vacuum()?;
